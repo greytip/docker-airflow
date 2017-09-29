@@ -14,7 +14,28 @@ TRY_LOOP="20"
 : ${POSTGRES_PASSWORD:="airflow"}
 : ${POSTGRES_DB:="airflow"}
 
-: ${FERNET_KEY:=$(python -c "from cryptography.fernet import Fernet; FERNET_KEY = Fernet.generate_key().decode(); print(FERNET_KEY)")}
+#: ${FERNET_KEY:=$(python -c "from cryptography.fernet import Fernet; FERNET_KEY = Fernet.generate_key().decode(); print(FERNET_KEY)")}
+
+cp "$AIRFLOW_HOME"/etc/airflow.cfg "$AIRFLOW_HOME"/airflow.cfg
+
+function replace_vars() {
+   local vars
+   local name
+   name=$1[@]
+   vars=("${!name}")
+   for v in ${vars[@]}; do
+     value=${!v}
+#     echo "$v=$value"
+#     echo "sed -i -e 's/__${v}__/$value/' $2"
+     sed -i -e "s/__${v}__/$value/" $2
+   done
+}
+
+VARS=( S3_BUCKET_NAME \
+       APP_SECRET FERNET_KEY \
+       SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD )
+replace_vars VARS "$AIRFLOW_HOME"/airflow.cfg
+
 
 # Load DAGs exemples (default: Yes)
 if [ "$LOAD_EX" = "n" ]; then
@@ -27,7 +48,7 @@ if [ -e "/requirements.txt" ]; then
 fi
 
 # Update airflow config - Fernet key
-sed -i "s|\$FERNET_KEY|$FERNET_KEY|" "$AIRFLOW_HOME"/airflow.cfg
+#sed -i "s|\$FERNET_KEY|$FERNET_KEY|" "$AIRFLOW_HOME"/airflow.cfg
 
 if [ -n "$REDIS_PASSWORD" ]; then
     REDIS_PREFIX=:${REDIS_PASSWORD}@
