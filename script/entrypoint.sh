@@ -3,21 +3,20 @@
 AIRFLOW_HOME="/usr/local/airflow"
 CMD="airflow"
 TRY_LOOP="20"
+SQL_ALCHEMY_CONN="postgresql+psycopg2://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB" 
+RESULT_BACKEND="db+postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB" 
+BROKER_URL="redis://$REDIS_PREFIX$REDIS_HOST:$REDIS_PORT/$REDIS_DB"
 
-: ${REDIS_HOST:="redis"}
-: ${REDIS_PORT:="6379"}
-: ${REDIS_DB:="1"}
-: ${REDIS_PASSWORD:=""}
+echo $SQL_ALCHEMY_CONN
+echo $RESULT_BACKEND
+echo $BROKER_URL
 
-: ${POSTGRES_HOST:="postgres"}
-: ${POSTGRES_PORT:="5432"}
-: ${POSTGRES_USER:="airflow"}
-: ${POSTGRES_PASSWORD:="airflow"}
-: ${POSTGRES_DB:="airflow"}
-
-#: ${FERNET_KEY:=$(python -c "from cryptography.fernet import Fernet; FERNET_KEY = Fernet.generate_key().decode(); print(FERNET_KEY)")}
 
 cp "$AIRFLOW_HOME"/etc/airflow.cfg "$AIRFLOW_HOME"/airflow.cfg
+mkdir "$AIRFLOW_HOME"/dags
+mkdir "$AIRFLOW_HOME"/plugins
+cp -L  /tmp/dags/*.py "$AIRFLOW_HOME"/dags
+cp -L  /tmp/plugins/*.py "$AIRFLOW_HOME"/plugins
 
 function replace_vars() {
    local vars
@@ -26,30 +25,20 @@ function replace_vars() {
    vars=("${!name}")
    for v in ${vars[@]}; do
      value=${!v}
-#     echo "$v=$value"
-#     echo "sed -i -e 's/__${v}__/$value/' $2"
-     sed -i -e "s/__${v}__/$value/" $2
+     #echo "$v=$value"
+     #echo "sed -i -e 's/__${v}__/$value/' $2"
+     sed -i -e "s|__${v}__|$value|" $2
    done
 }
 
-VARS=( S3_BUCKET_NAME \
-       APP_SECRET FERNET_KEY \
-       SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD )
+VARS=( SQL_ALCHEMY_CONN RESULT_BACKEND BROKER_URL )
+
 replace_vars VARS "$AIRFLOW_HOME"/airflow.cfg
-
-
-# Load DAGs exemples (default: Yes)
-if [ "$LOAD_EX" = "n" ]; then
-    sed -i "s/load_examples = True/load_examples = False/" "$AIRFLOW_HOME"/airflow.cfg
-fi
 
 # Install custome python package if requirements.txt is present
 if [ -e "/requirements.txt" ]; then
     $(which pip) install --user -r /requirements.txt
 fi
-
-# Update airflow config - Fernet key
-#sed -i "s|\$FERNET_KEY|$FERNET_KEY|" "$AIRFLOW_HOME"/airflow.cfg
 
 if [ -n "$REDIS_PASSWORD" ]; then
     REDIS_PREFIX=:${REDIS_PASSWORD}@
@@ -73,51 +62,25 @@ if [ "$1" = "webserver" ] || [ "$1" = "worker" ] || [ "$1" = "scheduler" ] ; the
   done
 fi
 
-# Update configuration depending the type of Executor
-if [ "$EXECUTOR" = "Celery" ]
-then
-  # Wait for Redis
-  if [ "$1" = "webserver" ] || [ "$1" = "worker" ] || [ "$1" = "scheduler" ] || [ "$1" = "flower" ] ; then
-    j=0
-    while ! nc -z $REDIS_HOST $REDIS_PORT >/dev/null 2>&1 < /dev/null; do
-      j=$((j+1))
-      if [ $j -ge $TRY_LOOP ]; then
-        echo "$(date) - $REDIS_HOST still not reachable, giving up"
-        exit 1
-      fi
-      echo "$(date) - waiting for Redis... $j/$TRY_LOOP"
-      sleep 5
-    done
-  fi
-  sed -i "s#celery_result_backend = db+postgresql://airflow:airflow@postgres/airflow#celery_result_backend = db+postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB#" "$AIRFLOW_HOME"/airflow.cfg
-  sed -i "s#sql_alchemy_conn = postgresql+psycopg2://airflow:airflow@postgres/airflow#sql_alchemy_conn = postgresql+psycopg2://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB#" "$AIRFLOW_HOME"/airflow.cfg
-  sed -i "s#broker_url = redis://redis:6379/1#broker_url = redis://$REDIS_PREFIX$REDIS_HOST:$REDIS_PORT/$REDIS_DB#" "$AIRFLOW_HOME"/airflow.cfg
-  if [ "$1" = "webserver" ]; then
-    echo "Initialize database..."
-    $CMD initdb
-    exec $CMD webserver
-  else
-    sleep 10
-    exec $CMD "$@"
-  fi
-elif [ "$EXECUTOR" = "Local" ]
-then
-  sed -i "s/executor = CeleryExecutor/executor = LocalExecutor/" "$AIRFLOW_HOME"/airflow.cfg
-  sed -i "s#sql_alchemy_conn = postgresql+psycopg2://airflow:airflow@postgres/airflow#sql_alchemy_conn = postgresql+psycopg2://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB#" "$AIRFLOW_HOME"/airflow.cfg
-  sed -i "s#broker_url = redis://redis:6379/1#broker_url = redis://$REDIS_PREFIX$REDIS_HOST:$REDIS_PORT/1#" "$AIRFLOW_HOME"/airflow.cfg
-  echo "Initialize database..."
-  $CMD initdb
-  exec $CMD webserver &
-  exec $CMD scheduler
-# By default we use SequentialExecutor
-else
-  if [ "$1" = "version" ]; then
-    exec $CMD version
-    exit
-  fi
-  sed -i "s/executor = CeleryExecutor/executor = SequentialExecutor/" "$AIRFLOW_HOME"/airflow.cfg
-  sed -i "s#sql_alchemy_conn = postgresql+psycopg2://airflow:airflow@postgres/airflow#sql_alchemy_conn = sqlite:////usr/local/airflow/airflow.db#" "$AIRFLOW_HOME"/airflow.cfg
+# Wait for Redis
+if [ "$1" = "webserver" ] || [ "$1" = "worker" ] || [ "$1" = "scheduler" ] || [ "$1" = "flower" ] ; then
+  j=0
+  while ! nc -z $REDIS_HOST $REDIS_PORT >/dev/null 2>&1 < /dev/null; do
+    j=$((j+1))
+    if [ $j -ge $TRY_LOOP ]; then
+      echo "$(date) - $REDIS_HOST still not reachable, giving up"
+      exit 1
+    fi
+    echo "$(date) - waiting for Redis... $j/$TRY_LOOP"
+    sleep 5
+  done
+fi
+
+if [ "$1" = "webserver" ]; then
   echo "Initialize database..."
   $CMD initdb
   exec $CMD webserver
+else
+  sleep 10
+  exec $CMD "$@"
 fi

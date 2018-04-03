@@ -16,21 +16,21 @@ import os
 
 from airflow import configuration as conf
 
-# TO DO: Logging format and level should be configured
+# TODO: Logging format and level should be configured
 # in this file instead of from airflow.cfg. Currently
 # there are other log format and level configurations in
 # settings.py and cli.py. Please see AIRFLOW-1455.
 
-LOG_LEVEL = conf.get('core', 'logging_level').upper()
+LOG_LEVEL = conf.get('core', 'LOGGING_LEVEL').upper()
 LOG_FORMAT = conf.get('core', 'log_format')
 
-BASE_LOG_FOLDER = conf.get('core', 'base_log_folder')
+BASE_LOG_FOLDER = conf.get('core', 'BASE_LOG_FOLDER')
 PROCESSOR_LOG_FOLDER = conf.get('scheduler', 'child_process_log_directory')
+
+REMOTE_BASE_LOG_FOLDER = conf.get('core', 'REMOTE_BASE_LOG_FOLDER')
 
 FILENAME_TEMPLATE = '{{ ti.dag_id }}/{{ ti.task_id }}/{{ ts }}/{{ try_number }}.log'
 PROCESSOR_FILENAME_TEMPLATE = '{{ filename }}.log'
-
-S3_LOG_FOLDER = conf.get('core', 'remote_base_log_folder')
 
 LOGGING_CONFIG = {
     'version': 1,
@@ -68,7 +68,7 @@ LOGGING_CONFIG = {
             'class': 'airflow.utils.log.s3_task_handler.S3TaskHandler',
             'formatter': 'airflow.task',
             'base_log_folder': os.path.expanduser(BASE_LOG_FOLDER),
-            's3_log_folder': S3_LOG_FOLDER,
+            's3_log_folder': REMOTE_BASE_LOG_FOLDER,
             'filename_template': FILENAME_TEMPLATE,
         },
         # 'gcs.task': {
@@ -95,12 +95,12 @@ LOGGING_CONFIG = {
             'propagate': True,
         },
         'airflow.task': {
-            'handlers': ['s3.task'],
+            'handlers': ['file.task', 's3.task'],
             'level': LOG_LEVEL,
             'propagate': False,
         },
         'airflow.task_runner': {
-            'handlers': ['s3.task'],
+            'handlers': ['file.task', 's3.task'],
             'level': LOG_LEVEL,
             'propagate': True,
         },
