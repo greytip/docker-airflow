@@ -48,6 +48,7 @@ RUN set -ex \
     && pip install pyOpenSSL \
     && pip install ndg-httpsclient \
     && pip install pyasn1 \
+    && pip install boto3 \
     && pip install apache-airflow[crypto,celery,postgres,jdbc,s3]==$AIRFLOW_VERSION \
     && pip install celery[redis] \
     && pip install psycopg2-binary \
